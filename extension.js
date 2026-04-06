@@ -1,13 +1,11 @@
 /**
- * Gamplo SDK TurboWarp Extension (Full Version)
- * Author: Gemini AI
- * Features: Auth, Stats, Achievements, UI, and Error Events.
+ * Gamplo SDK TurboWarp Extension
+ * Updated to match official Gamplo API: getPlayer, onReady, refreshPlayer
  */
 
 (function (Scratch) {
   'use strict';
 
-  // The extension must run unsandboxed to access window.Gamplo
   if (!Scratch.extensions.unsandboxed) {
     throw new Error('This extension must run unsandboxed. Please check the "Run extension without sandbox" box.');
   }
@@ -16,31 +14,29 @@
     constructor(runtime) {
       this.runtime = runtime;
       this._lastError = "";
+      this._player = null;
       this._loadSDK();
     }
 
-    /**
-     * Automatically injects the Gamplo SDK script into the page.
-     * Replace the URL below with the official one from gamplo.com/developer/sdk
-     */
     _loadSDK() {
       if (!window.Gamplo) {
         const script = document.createElement('script');
-        script.src = 'https://gamplo.com/sdk.js'; 
+        script.src = 'https://gamplo.com/sdk/gamplo.js';
         script.async = true;
-        script.onload = () => console.log("Gamplo SDK: Script loaded.");
-        script.onerror = () => this._triggerError("SDK script failed to load. Check your internet or the URL.");
+        script.onload = () => {
+          // Use the official onReady listener
+          window.Gamplo.onReady(() => {
+            this._player = window.Gamplo.getPlayer();
+            console.log("Gamplo SDK Ready. Player:", this._player?.displayName);
+          });
+        };
+        script.onerror = () => this._triggerError("Failed to load Gamplo script.");
         document.head.appendChild(script);
       }
     }
 
-    /**
-     * Triggers the 'When Error' Hat block and stores the message.
-     */
     _triggerError(msg) {
       this._lastError = String(msg);
-      console.error("Gamplo Error:", msg);
-      // Firing the hat block as a pulse (prevents permanent yellow outline)
       this.runtime.startHats('gamplo_whenError');
     }
 
@@ -49,38 +45,27 @@
         id: 'gamplo',
         name: 'Gamplo SDK',
         color1: '#1a73e8',
-        color2: '#1557b0',
         blocks: [
-          // --- EVENTS ---
           {
             opcode: 'whenError',
             blockType: Scratch.BlockType.HAT,
             text: 'when Gamplo error occurs',
             isEdgeActivated: false 
           },
-
           '---',
-
-          // --- USER & AUTH ---
-          {
-            opcode: 'isLoggedIn',
-            blockType: Scratch.BlockType.BOOLEAN,
-            text: 'is user logged in?'
+          { opcode: 'isReady', blockType: Scratch.BlockType.BOOLEAN, text: 'is SDK ready?' },
+          { 
+            opcode: 'refreshPlayer', 
+            blockType: Scratch.BlockType.COMMAND, 
+            text: 'refresh player data from server' 
           },
-          {
-            opcode: 'getUsername',
-            blockType: Scratch.BlockType.REPORTER,
-            text: 'player username'
-          },
-          {
-            opcode: 'getUserId',
-            blockType: Scratch.BlockType.REPORTER,
-            text: 'player ID'
-          },
-
           '---',
-
-          // --- LEADERBOARDS ---
+          { opcode: 'getDisplayName', blockType: Scratch.BlockType.REPORTER, text: 'player display name' },
+          { opcode: 'getUsername', blockType: Scratch.BlockType.REPORTER, text: 'player username' },
+          { opcode: 'getPlayerId', blockType: Scratch.BlockType.REPORTER, text: 'player ID' },
+          { opcode: 'getAvatar', blockType: Scratch.BlockType.REPORTER, text: 'player avatar URL' },
+          { opcode: 'getSessionId', blockType: Scratch.BlockType.REPORTER, text: 'session ID' },
+          '---',
           {
             opcode: 'submitScore',
             blockType: Scratch.BlockType.COMMAND,
@@ -90,95 +75,60 @@
               ID: { type: Scratch.ArgumentType.STRING, defaultValue: 'main' }
             }
           },
-          {
-            opcode: 'getHighScore',
-            blockType: Scratch.BlockType.REPORTER,
-            text: 'my high score on [ID]',
-            arguments: {
-              ID: { type: Scratch.ArgumentType.STRING, defaultValue: 'main' }
-            }
-          },
-
-          '---',
-
-          // --- ACHIEVEMENTS ---
-          {
-            opcode: 'unlockAchievement',
-            blockType: Scratch.BlockType.COMMAND,
-            text: 'unlock achievement [ID]',
-            arguments: {
-              ID: { type: Scratch.ArgumentType.STRING, defaultValue: 'badge_01' }
-            }
-          },
-
-          '---',
-
-          // --- UI & UTILS ---
-          {
-            opcode: 'showLeaderboard',
-            blockType: Scratch.BlockType.COMMAND,
-            text: 'open leaderboard overlay'
-          },
-          {
-            opcode: 'getError',
-            blockType: Scratch.BlockType.REPORTER,
-            text: 'last error message'
-          }
+          { opcode: 'getError', blockType: Scratch.BlockType.REPORTER, text: 'last error message' }
         ]
       };
     }
 
-    // --- BLOCK LOGIC ---
+    // --- LOGIC ---
 
-    isLoggedIn() {
-      if (!window.Gamplo) return false;
-      return typeof window.Gamplo.isLoggedIn === 'function' ? window.Gamplo.isLoggedIn() : false;
+    isReady() {
+      return !!(window.Gamplo && window.Gamplo.isReady());
+    }
+
+    async refreshPlayer() {
+      if (!window.Gamplo) return;
+      try {
+        this._player = await window.Gamplo.refreshPlayer();
+      } catch (e) {
+        this._triggerError("Refresh failed: " + e.message);
+      }
+    }
+
+    getDisplayName() {
+      const p = window.Gamplo?.getPlayer();
+      return p?.displayName || "Guest";
     }
 
     getUsername() {
-      return window.Gamplo?.user?.name || "Guest";
+      const p = window.Gamplo?.getPlayer();
+      return p?.username || "Guest";
     }
 
-    getUserId() {
-      return window.Gamplo?.user?.id || "";
+    getPlayerId() {
+      const p = window.Gamplo?.getPlayer();
+      return p?.id || "";
+    }
+
+    getAvatar() {
+      const p = window.Gamplo?.getPlayer();
+      return p?.image || "";
+    }
+
+    getSessionId() {
+      return window.Gamplo?.getSessionId() || "";
     }
 
     async submitScore(args) {
-      if (!window.Gamplo) return this._triggerError("SDK not loaded yet.");
+      if (!window.Gamplo) return this._triggerError("SDK not loaded");
       try {
+        // Note: Assuming standard Gamplo score submission structure
         await window.Gamplo.submitScore({
           score: Number(args.SCORE),
           leaderboard: String(args.ID)
         });
-      } catch (err) {
-        this._triggerError(err.message || err);
-      }
-    }
-
-    async getHighScore(args) {
-      if (!window.Gamplo) return 0;
-      try {
-        const stats = await window.Gamplo.getStats(String(args.ID));
-        return stats?.highScore || 0;
-      } catch (err) {
-        return 0;
-      }
-    }
-
-    async unlockAchievement(args) {
-      if (!window.Gamplo) return this._triggerError("SDK not loaded yet.");
-      try {
-        await window.Gamplo.unlockAchievement(String(args.ID));
-      } catch (err) {
-        this._triggerError(err.message || err);
-      }
-    }
-
-    showLeaderboard() {
-      if (window.Gamplo?.ui?.showLeaderboard) {
-        window.Gamplo.ui.showLeaderboard();
-      } else {
-        this._triggerError("Leaderboard UI not supported or SDK not ready.");
+      } catch (e) {
+        this._triggerError(e.message);
       }
     }
 
