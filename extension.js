@@ -72,7 +72,7 @@
       return {
         id: 'gamplo',
         name: 'Gamplo',
-        color1: '#00c853', // Gamplo Green
+        color1: '#00d853', // Gamplo Green
         blocks: [
           {
             opcode: 'isReady',
