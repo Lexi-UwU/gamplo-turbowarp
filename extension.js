@@ -174,9 +174,23 @@
       }
     }
 
-    async setSave(args) {
+  async setSave(args) {
       if (!this.sessionId || this.isBusy) return;
       this.isBusy = true;
+      
+      let dataObject;
+      try {
+        // Try to parse the Scratch string as JSON
+        dataObject = JSON.parse(args.DATA);
+        // Ensure it's actually an object, not a number or string
+        if (typeof dataObject !== 'object' || dataObject === null) {
+            dataObject = { value: args.DATA };
+        }
+      } catch (e) {
+        // If it's not valid JSON, wrap it in an object anyway
+        dataObject = { value: args.DATA };
+      }
+
       try {
         await fetch(`${this.apiBase}/api/sdk/saves`, {
           method: 'POST',
@@ -186,16 +200,13 @@
           },
           body: JSON.stringify({
             slot: args.SLOT,
-            data: String(args.DATA)
+            data: dataObject // Sending as a real JSON Object {}
           })
         });
-      } catch (e) {
-        console.error('[Gamplo] Save Error:', e);
-      }
+      } catch (e) { console.error(e); }
       this.isBusy = false;
     }
-
-    async getSave(args) {
+async getSave(args) {
       if (!this.sessionId || this.isBusy) return;
       this.isBusy = true;
       try {
@@ -206,19 +217,17 @@
         
         if (response.ok) {
           const result = await response.json();
-          this.lastLoadedData = result.data || "";
+          // result.data is now the object {}
+          // If we wrapped it in {value: x}, return x. Otherwise stringify the whole object.
+          if (result.data && result.data.value !== undefined && Object.keys(result.data).length === 1) {
+            this.lastLoadedData = result.data.value;
+          } else {
+            this.lastLoadedData = JSON.stringify(result.data);
+          }
         }
-      } catch (e) {
-        console.error('[Gamplo] Load Error:', e);
-        this.lastLoadedData = "ERROR";
-      }
+      } catch (e) { this.lastLoadedData = "ERROR"; }
       this.isBusy = false;
     }
-
-    getLastData() {
-      return this.lastLoadedData;
-    }
-  }
 
   Scratch.extensions.register(new GamploExtension(Scratch.runtime));
 })(Scratch);
