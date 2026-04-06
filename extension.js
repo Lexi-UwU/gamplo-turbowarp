@@ -1,141 +1,140 @@
-/**
- * Gamplo SDK TurboWarp Extension
- * Updated to match official Gamplo API: getPlayer, onReady, refreshPlayer
- */
-
 (function (Scratch) {
   'use strict';
 
+  // Check if we are unsandboxed (Required for Fetch and Window access)
   if (!Scratch.extensions.unsandboxed) {
-    throw new Error('This extension must run unsandboxed. Please check the "Run extension without sandbox" box.');
+    throw new Error('Gamplo extension must run unsandboxed! Please check the box in the Custom Extension menu.');
   }
 
-  class GamploSDK {
+  class GamploExtension {
     constructor(runtime) {
       this.runtime = runtime;
-      this._lastError = "";
-      this._player = null;
-      this._loadSDK();
+      this.sessionId = null;
+      this.player = null;
+      this.isConnected = false;
+      this.lastError = "";
+
+      // Start the auth flow immediately on load
+      this._init();
     }
 
-    _loadSDK() {
-      if (!window.Gamplo) {
-        const script = document.createElement('script');
-        script.src = 'https://gamplo.com/sdk/gamplo.js';
-        script.async = true;
-        script.onload = () => {
-          // Use the official onReady listener
-          window.Gamplo.onReady(() => {
-            this._player = window.Gamplo.getPlayer();
-            console.log("Gamplo SDK Ready. Player:", this._player?.displayName);
-          });
-        };
-        script.onerror = () => this._triggerError("Failed to load Gamplo script.");
-        document.head.appendChild(script);
+    async _init() {
+      const urlParams = new URLSearchParams(window.location.search);
+      const token = urlParams.get('gamplo_token');
+
+      if (!token) {
+        this.lastError = "No gamplo_token found in URL.";
+        return;
+      }
+
+      try {
+        const response = await fetch('https://gamplo.com/api/sdk/auth', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: token })
+        });
+
+        if (!response.ok) throw new Error('Auth failed');
+
+        const data = await response.json();
+        this.sessionId = data.sessionId;
+        this.player = data.player;
+        this.isConnected = true;
+
+        // Start Heartbeat (Every 2 minutes as per SDK)
+        this._startHeartbeat();
+        console.log('Gamplo Connected as:', this.player.displayName);
+      } catch (e) {
+        this.lastError = e.message;
+        console.error('Gamplo Init Error:', e);
       }
     }
 
-    _triggerError(msg) {
-      this._lastError = String(msg);
-      this.runtime.startHats('gamplo_whenError');
+    _startHeartbeat() {
+      setInterval(async () => {
+        if (this.sessionId) {
+          await fetch('https://gamplo.com/api/sdk/session', {
+            method: 'POST',
+            headers: { 'x-sdk-session': this.sessionId }
+          }).catch(() => { this.isConnected = false; });
+        }
+      }, 120000);
     }
 
     getInfo() {
       return {
         id: 'gamplo',
-        name: 'Gamplo SDK',
-        color1: '#1a73e8',
+        name: 'Gamplo',
+        color1: '#00c853',
         blocks: [
           {
-            opcode: 'whenError',
-            blockType: Scratch.BlockType.HAT,
-            text: 'when Gamplo error occurs',
-            isEdgeActivated: false 
+            opcode: 'isReady',
+            blockType: Scratch.BlockType.BOOLEAN,
+            text: 'is Gamplo connected?'
+          },
+          {
+            opcode: 'getPlayerName',
+            blockType: Scratch.BlockType.REPORTER,
+            text: 'player name'
           },
           '---',
-          { opcode: 'isReady', blockType: Scratch.BlockType.BOOLEAN, text: 'is SDK ready?' },
-          { 
-            opcode: 'refreshPlayer', 
-            blockType: Scratch.BlockType.COMMAND, 
-            text: 'refresh player data from server' 
+          {
+            opcode: 'unlockAchievement',
+            blockType: Scratch.BlockType.COMMAND,
+            text: 'unlock achievement [KEY]',
+            arguments: {
+              KEY: { type: Scratch.ArgumentType.STRING, defaultValue: 'test_1' }
+            }
           },
-          '---',
-          { opcode: 'getDisplayName', blockType: Scratch.BlockType.REPORTER, text: 'player display name' },
-          { opcode: 'getUsername', blockType: Scratch.BlockType.REPORTER, text: 'player username' },
-          { opcode: 'getPlayerId', blockType: Scratch.BlockType.REPORTER, text: 'player ID' },
-          { opcode: 'getAvatar', blockType: Scratch.BlockType.REPORTER, text: 'player avatar URL' },
-          { opcode: 'getSessionId', blockType: Scratch.BlockType.REPORTER, text: 'session ID' },
-          '---',
           {
             opcode: 'submitScore',
             blockType: Scratch.BlockType.COMMAND,
-            text: 'submit score [SCORE] to leaderboard [ID]',
+            text: 'submit score [SCORE] to [LB]',
             arguments: {
               SCORE: { type: Scratch.ArgumentType.NUMBER, defaultValue: 100 },
-              ID: { type: Scratch.ArgumentType.STRING, defaultValue: 'main' }
+              LB: { type: Scratch.ArgumentType.STRING, defaultValue: 'main' }
             }
-          },
-          { opcode: 'getError', blockType: Scratch.BlockType.REPORTER, text: 'last error message' }
+          }
         ]
       };
     }
 
-    // --- LOGIC ---
+    isReady() { return this.isConnected; }
 
-    isReady() {
-      return !!(window.Gamplo && window.Gamplo.isReady());
-    }
+    getPlayerName() { return this.player ? this.player.displayName : "Guest"; }
 
-    async refreshPlayer() {
-      if (!window.Gamplo) return;
+    async unlockAchievement(args) {
+      if (!this.sessionId) return;
       try {
-        this._player = await window.Gamplo.refreshPlayer();
-      } catch (e) {
-        this._triggerError("Refresh failed: " + e.message);
-      }
-    }
-
-    getDisplayName() {
-      const p = window.Gamplo?.getPlayer();
-      return p?.displayName || "Guest";
-    }
-
-    getUsername() {
-      const p = window.Gamplo?.getPlayer();
-      return p?.username || "Guest";
-    }
-
-    getPlayerId() {
-      const p = window.Gamplo?.getPlayer();
-      return p?.id || "";
-    }
-
-    getAvatar() {
-      const p = window.Gamplo?.getPlayer();
-      return p?.image || "";
-    }
-
-    getSessionId() {
-      return window.Gamplo?.getSessionId() || "";
+        const response = await fetch('https://gamplo.com/api/sdk/achievements/unlock', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-sdk-session': this.sessionId
+          },
+          body: JSON.stringify({ key: args.KEY }) // Using 'key' as found in SDK
+        });
+        if (!response.ok) console.error("Unlock failed", await response.json());
+      } catch (e) { console.error(e); }
     }
 
     async submitScore(args) {
-      if (!window.Gamplo) return this._triggerError("SDK not loaded");
+      if (!this.sessionId) return;
       try {
-        // Note: Assuming standard Gamplo score submission structure
-        await window.Gamplo.submitScore({
-          score: Number(args.SCORE),
-          leaderboard: String(args.ID)
+        await fetch('https://gamplo.com/api/sdk/scores', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-sdk-session': this.sessionId
+          },
+          body: JSON.stringify({
+            score: args.SCORE,
+            leaderboard: args.LB
+          })
         });
-      } catch (e) {
-        this._triggerError(e.message);
-      }
-    }
-
-    getError() {
-      return this._lastError;
+      } catch (e) { console.error(e); }
     }
   }
 
-  Scratch.extensions.register(new GamploSDK(Scratch.runtime));
+  Scratch.extensions.register(new GamploExtension(Scratch.runtime));
 })(Scratch);
